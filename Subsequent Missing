@@ -1,0 +1,82 @@
+data heart;
+	set sashelp.heart;
+	id = _n_;
+run;
+
+proc transpose
+	data=heart
+	out=heart2 (drop=_label_)
+ 	prefix=value
+	name=source;
+	by id; 
+	var _all_;
+run;
+
+proc sort
+	data=heart2;
+	by ID;
+run;
+
+data heart3 (drop=value1);
+	set heart2 (where=(source ne "id"));
+	by id;
+	if first.id then
+		do;
+			col_num=1;
+		end;
+		else col_num+1;
+	value = strip(value1);
+	if value="." then value="";
+run;
+
+proc sql ;
+	select distinct col_num
+	into :flagCol
+	from heart3
+	where source="Sex";
+	select max(col_num)
+	into :maxCol
+	from heart3;
+quit;
+
+*%put &flagCol &maxCol;
+
+%macro test;
+data heart4;
+	set heart3;
+	by id;
+	if first.id then counter=0;
+		else
+			%do i=&flagCol %to &maxCol;
+				if col_num=&i and value="" then counter+1;
+			%end;		
+run;
+%mend test;
+%test;
+
+proc sql;
+	create table heart5 as
+	select distinct id, 
+			case when max(counter) > 0 then 'yes'
+				else 'no'
+				end as subsequent_missing_flag
+	from heart4
+	group by id;
+quit;
+
+proc sql;
+	create table final as
+	select a.*, b.subsequent_missing_flag
+	from heart a
+		left join heart5 b
+		on a.id=b.id;
+quit;
+
+%macro cleanUp;
+%do i=2 %to 5;
+	proc delete
+		data=heart&i;
+	run;
+%end;
+%mend cleanUp;
+%cleanUP;
